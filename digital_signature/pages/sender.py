@@ -228,64 +228,71 @@ def product_detail_info(*args):
 
 
 def encrypt_ui() -> rx.Component:
-    button_props = {
-        "variant": "solid",
-        "color_scheme": "violet",
-        "size": "2",
-        "radius": "medium",
-    }
-
-    key_text_props = {"weight": "medium", "color_scheme": "violet"}
-    scrollbar_props = {
-        "height": "2vw",
-        "width": "25vw",
-        "type": "hover",
-        "scrollbars": "horizontal",
+    params = {
+        "button_props": {
+            "variant": "solid",
+            "color_scheme": "violet",
+            "size": "2",
+            "radius": "medium",
+        },
+        "key_text_props": {"weight": "medium", "color_scheme": "violet"},
+        "scrollbar_props": {
+            "height": "2vw",
+            "width": "25vw",
+            "type": "hover",
+            "scrollbars": "horizontal",
+        },
     }
     return rx.container(
         rx.flex(
-            rx.heading("Randomize keys", size="7"),
-            rx.hstack(
-                rx.button(
-                    "Randomize",
-                    **button_props,
-                    on_click=AppState.randomize_keys,
-                ),
-                rx.button(
-                    "Reset",
-                    **button_props,
-                    on_click=AppState.clear_keys,
-                ),
-                justify="center",
-                spacing="3",
-                width="100%",
-            ),
-            rx.grid(
-                rx.card(
-                    rx.text("Private Key", **key_text_props),
-                    rx.scroll_area(
-                        rx.cond(AppState.private_key, AppState.private_key, "N/A"),
-                        **scrollbar_props,
-                    ),
-                ),
-                rx.card(
-                    rx.text("Public Key", **key_text_props),
-                    rx.scroll_area(
-                        rx.cond(AppState.public_key, AppState.public_key, "N/A"),
-                        **scrollbar_props,
-                    ),
-                ),
-                rows="1",
-                columns="2",
-                justify="center",
-                spacing="4",
-            ),
+            generate_keys(**params),
             align="center",
             spacing="4",
             width="100%",
             direction="column",
         ),
         width="100%",
+    )
+
+
+def generate_keys(*args, **kwargs) -> rx.Component:
+    return rx.fragment(
+        rx.heading("Randomize keys", size="7"),
+        rx.hstack(
+            rx.button(
+                "Randomize",
+                **kwargs["button_props"],
+                on_click=AppState.randomize_keys,
+            ),
+            rx.button(
+                "Reset",
+                **kwargs["button_props"],
+                on_click=AppState.clear_keys,
+            ),
+            justify="center",
+            spacing="3",
+            width="100%",
+        ),
+        rx.grid(
+            rx.card(
+                rx.text("Private Key", **kwargs["key_text_props"]),
+                rx.scroll_area(
+                    rx.cond(AppState.private_key, AppState.private_key, "N/A"),
+                    **kwargs["scrollbar_props"],
+                ),
+            ),
+            rx.card(
+                rx.text("Public Key", **kwargs["key_text_props"]),
+                rx.scroll_area(
+                    rx.cond(AppState.public_key, AppState.public_key, "N/A"),
+                    **kwargs["scrollbar_props"],
+                ),
+            ),
+            rows="1",
+            columns="2",
+            justify="center",
+            spacing="4",
+        ),
     )
 
 
@@ -299,14 +306,6 @@ def index() -> rx.Component:
                 flex="1",
                 width="100%",
                 padding="2em",
-            ),
-            rx.button("Sign", on_click=AppState.sign_product),
-            rx.scroll_area(
-                AppState.signed_payload,
-                scrollbars="horizontal",
-                width="10vw",
-                height="5vw",
-                type="always",
             ),
             direction="column",
             align="center",
