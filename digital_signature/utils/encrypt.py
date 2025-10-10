@@ -76,6 +76,6 @@ def sign_product(
         "pubkey": pub_b64,
         "pubkey_fingerprint": sha256_digest(public_pem),
         "algorithm": algorithm.upper(),
-        "signed_at": datetime.datetime.now().isoformat() + "Z",
+        "signed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     return payload

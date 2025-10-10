@@ -1,10 +1,7 @@
-import os
-from sqlalchemy import create_engine
-
-
 class Settings:
-    connection_string: str = os.getenv["DATABASE_URI"]
-    conn = create_engine(url=connection_string)
-
+    # local
+    private_storage: str = r"data/private_key.pem"
+    public_storage: str = r"data/public_key.pem"
+    transaction_storage: str = r"data/transaction.json"
 
 db_settings = Settings()

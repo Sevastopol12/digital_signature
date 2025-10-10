@@ -1,6 +1,10 @@
 import reflex as rx
-from ..utils.helper import generate_rsa_keypair
+import json
+import base64
+from ..utils.helper import generate_rsa_keypair, load_keys, store_keys
 from ..utils.encrypt import sign_product
+from ..database.connection import db_settings
+from ..components.nav import go_back, to_recipient
 from typing import Dict, Any, List
 
 
@@ -15,8 +19,8 @@ class AppState(rx.State):
     certificate: Dict[str, Any]
 
     # Keys
-    private_key: bytes = None
-    public_key: bytes = None
+    private_key: str = ""
+    public_key: str = ""
 
     # Settings
     algorithms: List[str] = ["rsa", "ecdsa"]
@@ -56,14 +60,11 @@ class AppState(rx.State):
             self.production_date = value
 
     @rx.event
-    def encrypt(self):
-        return 0
-
-    @rx.event
     def randomize_keys(self):
-        pem_private, pem_public = generate_rsa_keypair(key_size=1024)
-        self.private_key = pem_private
-        self.public_key = pem_public
+        pem_private, pem_public = generate_rsa_keypair(key_size=3072)
+        store_keys(private_key_pem=pem_private, public_key_pem=pem_public)
+        self.private_key = base64.b64encode(pem_private).decode("ascii")
+        self.public_key = base64.b64encode(pem_public).decode("ascii")
 
     @rx.event
     def clear_keys(self):
@@ -71,10 +72,8 @@ class AppState(rx.State):
         self.public_key = ""
 
     @rx.event
-    def sign_product(self):
-        if not self.private_key:
-            self.signed_payload = {}
-            return
+    def sign_payload(self):
+        private_pem, public_pem = load_keys()
 
         product_payload: Dict[str, Any] = {
             "product_id": self.product_id,
@@ -83,38 +82,48 @@ class AppState(rx.State):
             "origin": self.origin,
             "production_date": self.production_date,
             "expiry_date": self.expiry_date,
-            "certificate": self.certificate,
         }
+
         self.signed_payload: Dict[str, Any] = sign_product(
             metadata=product_payload,
-            private_pem=self.private_key,
-            public_pem=self.public_key,
+            private_pem=private_pem,
+            public_pem=public_pem,
             algorithm=self.selected_algorithm,
         )
 
+        self.publish_product()
 
-def input_product_info(*children) -> rx.Component:
-    title_props = {"weight": "medium", "color_scheme": "violet"}
+    def publish_product(self) -> None:
+        if self.signed_payload:
+            with open(db_settings.transaction_storage, "w", encoding="utf-8") as file:
+                json.dump(self.signed_payload, file, indent=4)
 
+    @rx.var
+    def payload_meta(self) -> Dict[str, Any]:
+        return self.signed_payload.get("metadata", {"a": None})
+
+    @rx.var
+    def payload_authority(self) -> Dict[str, Any]:
+        author_metadata: List[str] = [
+            "signature",
+            "pubkey",
+            "pubkey_fingerprint",
+            "algorithm",
+            "signed_at",
+        ]
+        return {key: self.signed_payload.get(key, None) for key in author_metadata}
+
+
+def input_product_info(*args, **kwargs) -> rx.Component:
     return rx.vstack(
+        rx.heading("Product Info", size="7"),
         rx.hstack(
-            product_common_info(title_props),
+            product_common_info(kwargs["title_props"]),
             rx.spacer(),
-            product_detail_info(title_props),
+            product_detail_info(kwargs["title_props"]),
             width="100%",
         ),
-        rx.vstack(
-            rx.text("Certificate:", **title_props),
-            rx.input(
-                variant="classic",
-                color_scheme="violet",
-                width="70%",
-                type="file",
-                height="5vw",
-            ),
-            width="80%",
-            align="center",
-        ),
+        publish_payload(**kwargs),
         width="100%",
         spacing="4",
         align="center",
@@ -227,25 +236,10 @@ def product_detail_info(*args):
     )
 
 
-def encrypt_ui() -> rx.Component:
-    params = {
-        "button_props": {
-            "variant": "solid",
-            "color_scheme": "violet",
-            "size": "2",
-            "radius": "medium",
-        },
-        "key_text_props": {"weight": "medium", "color_scheme": "violet"},
-        "scrollbar_props": {
-            "height": "2vw",
-            "width": "25vw",
-            "type": "hover",
-            "scrollbars": "horizontal",
-        },
-    }
+def encrypt_ui(*args, **kwargs) -> rx.Component:
     return rx.container(
         rx.flex(
-            generate_keys(**params),
+            generate_keys(**kwargs),
             align="center",
             spacing="4",
             width="100%",
@@ -277,14 +271,32 @@ def generate_keys(*args, **kwargs) -> rx.Component:
             rx.card(
                 rx.text("Private Key", **kwargs["key_text_props"]),
                 rx.scroll_area(
-                    rx.cond(AppState.private_key, AppState.private_key, "N/A"),
+                    rx.cond(
+                        AppState.private_key,
+                        rx.text(
+                            AppState.private_key,
+                            word_break="break-all",
+                            white_space="pre-wrap",
+                            padding="0.5em",
+                        ),
+                        "N/A",
+                    ),
                     **kwargs["scrollbar_props"],
                 ),
             ),
             rx.card(
                 rx.text("Public Key", **kwargs["key_text_props"]),
                 rx.scroll_area(
-                    rx.cond(AppState.public_key, AppState.public_key, "N/A"),
+                    rx.cond(
+                        AppState.public_key,
+                        rx.text(
+                            AppState.public_key,
+                            word_break="break-all",
+                            white_space="pre-wrap",
+                            padding="0.5em",
+                        ),
+                        "N/A",
+                    ),
                     **kwargs["scrollbar_props"],
                 ),
             ),
@@ -296,23 +308,188 @@ def generate_keys(*args, **kwargs) -> rx.Component:
     )
 
 
-@rx.page(route="/sender")
-def index() -> rx.Component:
-    return rx.center(
-        rx.flex(
-            rx.card(encrypt_ui(), flex="1", width="100%"),
-            rx.card(
-                input_product_info(),
-                flex="1",
-                width="100%",
-                padding="2em",
-            ),
-            direction="column",
-            align="center",
-            spacing="5",
-            justify="between",
+def publish_payload(*args, **kwargs) -> rx.Component:
+    return rx.flex(
+        rx.button(
+            "Sign",
+            **kwargs["button_props"],
+            on_click=AppState.sign_payload,
+        ),
+        rx.cond(
+            AppState.signed_payload,
+            display_signed_payload(**kwargs),
+            rx.fragment(),
+        ),
+        direction="column",
+        align="center",
+        spacing="4",
+    )
+
+
+def meta_box(title: str, value: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(
+            f"{title.replace('_', ' ').capitalize()}: ",
+            weight="medium",
+            color_scheme="violet",
+        ),
+        rx.text(
+            value,
+            weight="regular",
         ),
         width="100%",
-        paddingTop="5em",
-        height="auto",
+        align="center",
+        justify="start",
+    )
+
+
+def data_viewer_box(title: str, content: str) -> rx.Component:
+    """Creates a container for long, fixed-width data (like keys/signatures)."""
+    return rx.vstack(
+        rx.text(title, weight="bold", size="3", color_scheme="violet"),
+        rx.card(
+            rx.scroll_area(
+                rx.text(
+                    content,
+                    white_space="pre-wrap",
+                    word_break="break-all",
+                    padding="0.5em",
+                ),
+                width="36vw",
+                height="4vw",
+            ),
+        ),
+    )
+
+
+def display_signed_payload(*args, **kwargs) -> rx.Component:
+    return rx.center(
+        rx.dialog.root(
+            rx.dialog.trigger(
+                rx.button("View payload", **kwargs["button_props"]),
+            ),
+            rx.dialog.content(
+                rx.dialog.close(
+                    rx.hstack(
+                        rx.button(
+                            rx.icon("x", size=20),
+                            variant="ghost",
+                            color_scheme="violet",
+                        ),
+                        width="100%",
+                        justify="end",
+                    ),
+                ),
+                rx.center(
+                    rx.dialog.title(rx.heading("Payload info", size="7")),
+                ),
+                rx.divider(),
+                rx.center(
+                    rx.cond(
+                        AppState.signed_payload,
+                        rx.vstack(
+                            rx.grid(
+                                rx.foreach(
+                                    AppState.payload_meta.items(),
+                                    lambda item: meta_box(title=item[0], value=item[1]),
+                                ),
+                                rows="3",
+                                cols="2",
+                                flow="column",
+                                align="center",
+                                justify="between",
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.divider(),
+                            rx.vstack(
+                                meta_box(
+                                    title="Algorithm",
+                                    value=AppState.payload_authority.get(
+                                        "algorithm", ""
+                                    ),
+                                ),
+                                meta_box(
+                                    title="Signed at",
+                                    value=AppState.payload_authority.get(
+                                        "signed_at", ""
+                                    ),
+                                ),
+                                align="center",
+                                justify="center",
+                                width="100%",
+                            ),
+                            rx.divider(),
+                            rx.vstack(
+                                data_viewer_box(
+                                    "Signature",
+                                    AppState.payload_authority.get("signature", "N/A"),
+                                ),
+                                data_viewer_box(
+                                    "Public Key (Base64)",
+                                    AppState.payload_authority.get("pubkey", "N/A"),
+                                ),
+                                data_viewer_box(
+                                    "Public Key hashed",
+                                    AppState.payload_authority.get(
+                                        "pubkey_fingerprint", "N/A"
+                                    ),
+                                ),
+                                paddingTop="1em",
+                                align_items="start",
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.divider(),
+                            width="100%",
+                        ),
+                        rx.text("No payload signed."),
+                    ),
+                    paddingTop="2em",
+                ),
+            ),
+            align="center",
+        ),
+    )
+
+
+@rx.page(route="/sender")
+def index() -> rx.Component:
+    params = {
+        "button_props": {
+            "variant": "solid",
+            "color_scheme": "violet",
+            "size": "2",
+            "radius": "medium",
+        },
+        "key_text_props": {"weight": "medium", "color_scheme": "violet"},
+        "scrollbar_props": {
+            "height": "5vw",
+            "width": "25vw",
+            "type": "hover",
+            "scrollbars": "both",
+        },
+        "title_props": {"weight": "medium", "color_scheme": "violet"},
+    }
+    return rx.container(
+        rx.hstack(go_back(), rx.spacer(), to_recipient(), width="100%"),
+        rx.center(
+            rx.flex(
+                rx.card(encrypt_ui(**params), flex="1", width="100%"),
+                rx.card(
+                    input_product_info(**params),
+                    flex="1",
+                    width="100%",
+                    padding="1em",
+                ),
+                direction="column",
+                align="center",
+                spacing="5",
+                justify="between",
+            ),
+            width="100%",
+            paddingTop="2em",
+            height="auto",
+        ),
+        width="100%",
     )
