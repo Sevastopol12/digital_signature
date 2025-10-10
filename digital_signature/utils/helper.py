@@ -1,16 +1,22 @@
 import json
+import hashlib
 from ..database.connection import db_settings
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_public_key,
+    load_pem_private_key,
+)
+from cryptography.hazmat.backends import default_backend
+
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
     PrivateFormat,
     PublicFormat,
     NoEncryption,
-    BestAvailableEncryption
+    BestAvailableEncryption,
 )
-from cryptography.hazmat.backends import default_backend
 
 
 def generate_rsa_keypair(key_size: int = 3072) -> Tuple[bytes, bytes]:
@@ -62,17 +68,30 @@ def canonicalize_metadata(metadata: Dict) -> bytes:
     ).encode("utf-8")
 
 
+def sha256_digest(data: bytes) -> str:
+    """
+    Hash the message
+    """
+    hashed_message = hashlib.sha256(data).hexdigest()
+    return hashed_message
+
+
 def store_keys(private_key_pem: bytes, public_key_pem: bytes) -> None:
-    with open(db_settings.private_storage, "wb") as file:
-        file.write(private_key_pem)
-    with open(db_settings.public_storage, "wb") as file:
-        file.write(public_key_pem)
+    public_key_fingerprint: str = sha256_digest(public_key_pem)
+    keys: Dict[str, Any] = {
+        "private_key": private_key_pem.decode("ascii"),
+        "public_key": public_key_pem.decode("ascii"),
+        "fingerprint": public_key_fingerprint,
+    }
+
+    with open(db_settings.key_storage, "w") as file:
+        json.dump(keys, file, indent=4)
 
 
 def load_keys() -> Tuple[bytes, bytes]:
-    with open(db_settings.private_storage, "rb") as file:
-        private_pem: bytes = file.read()
-    with open(db_settings.public_storage, "rb") as file:
-        public_pem: bytes = file.read()
+    with open(db_settings.key_storage, "r") as f:
+        data = json.load(f)
+        public_pem = data["public_key"].encode("ascii")
+        private_pem = data["private_key"].encode("ascii")
 
     return private_pem, public_pem

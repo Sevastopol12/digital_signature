@@ -1,8 +1,7 @@
-import hashlib
 import base64
 import datetime
 from typing import Dict
-from .helper import canonicalize_metadata
+from .helper import canonicalize_metadata, sha256_digest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
@@ -34,14 +33,6 @@ def ecdsa_sign(private_pem: bytes, message: bytes) -> bytes:
     )
     signature = private_key.sign(message, ec.ECDSA(hashes.SHA256()))
     return signature
-
-
-def sha256_digest(data: bytes) -> str:
-    """
-    Hash the message
-    """
-    hashed_message = hashlib.sha256(data).hexdigest()
-    return hashed_message
 
 
 def sign_product(
@@ -76,6 +67,6 @@ def sign_product(
         "pubkey": pub_b64,
         "pubkey_fingerprint": sha256_digest(public_pem),
         "algorithm": algorithm.upper(),
-        "signed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "signed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return payload
