@@ -1,0 +1,273 @@
+import reflex as rx
+import json
+from ..utils.decrypt import authenticate_author_key, verify_signed_product_payload
+from typing import Dict, Any, List
+from ..database.connection import db_settings
+from ..components.nav import go_back, to_sender
+from ..components.box import meta_box, data_viewer_box
+
+
+class AppState(rx.State):
+    received_payload: Dict[str, Any] = {}
+
+    # Public key authentication
+    key_checked: bool = False  # Detect whether the user has checked the keys or not
+
+    @rx.event
+    def load_payload(self):
+        with open(db_settings.transaction_storage, "r") as file:
+            data = json.load(file)
+
+        self.received_payload = data
+
+    @rx.event
+    def set_input_key(self, value: str):
+        self.input_key = value
+
+    @rx.var
+    def verify_signature(self) -> bool:
+        return verify_signed_product_payload(payload=self.received_payload)
+
+    @rx.var
+    def authenticate_public_key(self) -> bool:
+        payload = self.payload_meta
+        author = payload.get("manufacturer", None)
+
+        key_match_status = authenticate_author_key(author=author)
+        return key_match_status
+
+    @rx.event
+    def set_key_checked(self):
+        if not self.key_checked:
+            self.key_checked = True
+
+    @rx.var
+    def payload_meta(self) -> Dict[str, Any]:
+        return self.received_payload.get("metadata", {})
+
+    @rx.var
+    def payload_authority(self) -> Dict[str, Any]:
+        author_metadata: List[str] = [
+            "signature",
+            "pubkey",
+            "pubkey_fingerprint",
+            "algorithm",
+            "signed_at",
+        ]
+        return {key: self.received_payload.get(key, None) for key in author_metadata}
+
+
+def display_metadata(*args, **kwargs) -> rx.Component:
+    return rx.fragment(
+        rx.grid(
+            rx.foreach(
+                AppState.payload_meta.items(),
+                lambda item: meta_box(title=item[0], value=item[1], **kwargs),
+            ),
+            rows="3",
+            cols="2",
+            flow="column",
+            align="center",
+            justify="between",
+            spacing="3",
+            width="100%",
+        ),
+    )
+
+
+def display_author(*args, **kwargs) -> rx.Component:
+    return rx.fragment(
+        rx.vstack(
+            meta_box(
+                title="Algorithm",
+                value=AppState.payload_authority.get("algorithm", ""),
+            ),
+            meta_box(
+                title="Signed at",
+                value=AppState.payload_authority.get("signed_at", ""),
+            ),
+            align="center",
+            justify="center",
+            width="100%",
+        ),
+    )
+
+
+def product_info() -> rx.Component:
+    return rx.flex(
+        rx.button(
+            rx.text("Load file"),
+            on_click=[AppState.load_payload, AppState.set_key_checked],
+        ),
+        rx.cond(
+            AppState.key_checked,
+            rx.fragment(
+                # Product's data
+                display_metadata(),
+                rx.divider(),
+                # Author & signed date
+                display_author(),
+            ),
+            rx.hstack(
+                "Load a sample to further verify it", width="100%", justify="center"
+            ),
+        ),
+        paddingTop="1em",
+        direction="column",
+        spacing="4",
+        align="center",
+        width="40vw",
+    )
+
+
+def public_key_authenticate(*args, **kwargs) -> rx.Component:
+    return rx.flex(
+        rx.fragment(
+            rx.text("Public key (fingerprint comparison)", **kwargs["title_props"]),
+            # data_viewer_box(
+            #     AppState.payload_authority.get("pubkey"),
+            #     width="37.5vw",
+            #     height="4vw",
+            # ),
+        ),
+        rx.hstack(
+            rx.cond(
+                AppState.authenticate_public_key,
+                rx.fragment(
+                    rx.text(rx.icon("circle-check", size=25), color_scheme="grass"),
+                    rx.text(
+                        "Valid, manufaturer matched with",
+                        color_scheme="grass",
+                    ),
+                    rx.text(
+                        f"{AppState.payload_meta.get('manufacturer', None)}",
+                        **kwargs["title_props"],
+                    ),
+                ),
+                rx.fragment(
+                    rx.text(rx.icon("circle-x", size=25), color_scheme="tomato"),
+                    rx.text(
+                        "Invalid, manufaturer does not matched with",
+                        color_scheme="tomato",
+                    ),
+                    rx.text(
+                        f"{AppState.payload_meta.get('manufacturer', None)}",
+                        **kwargs["title_props"],
+                    ),
+                ),
+            ),
+            width="100%",
+            align="center",
+            justify="center",
+        ),
+        direction="column",
+        spacing="3",
+        align="center",
+        paddingBottom="1em",
+    )
+
+
+def verify_signature(*args, **kwargs) -> rx.Component:
+    return rx.flex(
+        rx.cond(
+            AppState.authenticate_public_key,
+            rx.fragment(
+                rx.fragment(
+                    rx.text("Signature", **kwargs["title_props"]),
+                    # data_viewer_box(
+                    #     AppState.payload_authority.get("signature", "N/A"),
+                    #     width="37.5vw",
+                    #     height="4vw",
+                    # ),
+                ),
+                rx.hstack(
+                    rx.cond(
+                        AppState.verify_signature,
+                        rx.fragment(
+                            rx.text(
+                                rx.icon("circle-check", size=25), color_scheme="grass"
+                            ),
+                            rx.text(
+                                "Signature is VALID. Product origin and data integrity confirmed.",
+                                color_scheme="grass",
+                            ),
+                        ),
+                        rx.fragment(
+                            rx.text(
+                                rx.icon("circle-x", size=25), color_scheme="tomato"
+                            ),
+                            rx.text(
+                                "Signature is INVALID. WARNING: Potential data tampering or fraudulent origin detected!",
+                                color_scheme="tomato",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            rx.fragment(),
+        ),
+        direction="column",
+        spacing="3",
+        align="center",
+    )
+
+
+def product_verification(*args, **kwargs) -> rx.Component:
+    return rx.flex(
+        rx.vstack(
+            # Public key authentication
+            public_key_authenticate(**kwargs),
+            rx.divider(),
+            verify_signature(**kwargs),
+            align_items="center",
+            spacing="4",
+            width="100%",
+        ),
+        width="40vw",
+        paddingTop="1em",
+        direction="column",
+        spacing="4",
+        align="center",
+    )
+
+
+@rx.page(route="/recipient")
+def index() -> rx.Component:
+    params = {
+        "button_props": {
+            "variant": "solid",
+            "color_scheme": "violet",
+            "size": "2",
+            "radius": "medium",
+        },
+        "key_text_props": {"weight": "medium", "color_scheme": "violet"},
+        "title_props": {"weight": "bold", "color_scheme": "violet", "size": "4"},
+    }
+    return rx.container(
+        rx.hstack(go_back(), rx.spacer(), to_sender(), width="100%", align="center"),
+        rx.center(
+            rx.flex(
+                rx.card(
+                    rx.heading("Product Info", size="7", align="center",paddingBottom="0.5em"),
+                    rx.divider(),
+                    product_info(),
+                ),
+                rx.cond(
+                    AppState.key_checked,
+                    rx.card(
+                        rx.heading("Verification", size="7", align="center", paddingBottom="0.5em"),
+                        rx.divider(),
+                        product_verification(**params),
+                    ),
+                    rx.fragment(),
+                ),
+                direction="column",
+                spacing="5",
+                align="center",
+            ),
+            width="100%",
+            paddingTop="2em",
+            height="auto",
+        ),
+        width="100%",
+    )

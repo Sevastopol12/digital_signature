@@ -1,6 +1,7 @@
 class Settings:
     # local
-    key_storage: str = r"data/keys.json"
+    public_key_storage: str = r"data/public_key.json"
+    private_key_storage: str = r"data/private_key.json"
     transaction_storage: str = r"data/transaction.json"
 
 
