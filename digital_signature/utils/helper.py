@@ -1,5 +1,6 @@
 import json
 import hashlib
+import base64
 from ..database.connection import db_settings
 from typing import Tuple, Dict, Any
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
@@ -33,7 +34,6 @@ def generate_rsa_keypair(key_size: int = 3072) -> Tuple[bytes, bytes]:
         encoding=Encoding.PEM,
         format=PublicFormat.SubjectPublicKeyInfo,
     )
-    store_keys(private_pem, public_pem)
     return private_pem, public_pem
 
 
@@ -72,22 +72,72 @@ def sha256_digest(data: bytes) -> str:
     return hashed_message
 
 
-def store_keys(private_key_pem: bytes, public_key_pem: bytes) -> None:
-    public_key_fingerprint: str = sha256_digest(public_key_pem)
-    keys: Dict[str, Any] = {
-        "private_key": private_key_pem.decode("ascii"),
-        "public_key": public_key_pem.decode("ascii"),
-        "fingerprint": public_key_fingerprint,
+def load_public_keys(author: str) -> Tuple[bytes, bytes]:
+    with open(db_settings.public_key_storage, "r") as f:
+        data = json.load(f)
+        author_keys = data.get(author, None)
+
+        if author_keys:
+            public_pem = base64.b64decode(author_keys["public_key"])
+            public_hashed = author_keys["fingerprint"]
+        else:
+            public_pem = None
+            public_hashed = None
+
+    return public_pem, public_hashed
+
+
+def load_private_key(author: str) -> bytes:
+    with open(db_settings.private_key_storage, "r") as f:
+        data = json.load(f)
+        author_keys = data.get(author, None)
+
+        if author_keys:
+            private_pem = base64.b64decode(author_keys["private_key"])
+        else:
+            private_pem = None
+
+    return private_pem
+
+
+def register_key(private_key_pem: bytes, public_key_pem: bytes, author: str) -> None:
+    """Store author along with their keys into database"""
+    public_keys: Dict[str, Any] = {
+        "public_key": base64.b64encode(public_key_pem).decode("ascii"),
+        "fingerprint": sha256_digest(public_key_pem),
+    }
+    private_keys: Dict[str, Any] = {
+        "private_key": base64.b64encode(private_key_pem).decode("ascii")
     }
 
-    with open(db_settings.key_storage, "w") as file:
-        json.dump(keys, file, indent=4)
+    store_keys(storage=db_settings.public_key_storage, keys=public_keys, author=author)
+    store_keys(
+        storage=db_settings.private_key_storage, keys=private_keys, author=author
+    )
 
 
-def load_keys() -> Tuple[bytes, bytes]:
-    with open(db_settings.key_storage, "r") as f:
-        data = json.load(f)
-        public_pem = data["public_key"].encode("ascii")
-        private_pem = data["private_key"].encode("ascii")
+def store_keys(storage: str, keys: Dict[str, Any], author: str) -> None:
+    try:
+        with open(storage, "r", encoding="ascii") as file:
+            data = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
 
-    return private_pem, public_pem
+    if data.get(author, None):
+        # Update if exist
+        for key, item in keys.items():
+            data[author].update(keys)
+    else:
+        data[author] = keys
+
+    with open(storage, "w") as file:
+        json.dump(data, file, indent=4)
+
+
+def load_transaction() -> Any:
+    try:
+        with open(db_settings.transaction_storage, "r") as file:
+            data = json.load(file)
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
