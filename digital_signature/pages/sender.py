@@ -120,6 +120,7 @@ class AppState(rx.State):
     def payload_authority(self) -> Dict[str, Any]:
         author_metadata: List[str] = [
             "signature",
+            "digest",
             "pubkey",
             "pubkey_fingerprint",
             "algorithm",
@@ -408,6 +409,17 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                             rx.divider(),
                             rx.vstack(
                                 rx.text(
+                                    "Message digest",
+                                    weight="bold",
+                                    size="3",
+                                    color_scheme="violet",
+                                ),
+                                data_viewer_box(
+                                    AppState.payload_authority.get(
+                                        "digest", "N/A"
+                                    ),
+                                ),
+                                rx.text(
                                     "Signature",
                                     weight="bold",
                                     size="3",
@@ -424,17 +436,6 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 ),
                                 data_viewer_box(
                                     AppState.payload_authority.get("pubkey", "N/A"),
-                                ),
-                                rx.text(
-                                    "Public Key fingerprint",
-                                    weight="bold",
-                                    size="3",
-                                    color_scheme="violet",
-                                ),
-                                data_viewer_box(
-                                    AppState.payload_authority.get(
-                                        "pubkey_fingerprint", "N/A"
-                                    ),
                                 ),
                                 paddingTop="1em",
                                 align_items="start",

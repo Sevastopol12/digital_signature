@@ -11,7 +11,7 @@ def meta_box(title: str, value: str, *args, **kwargs) -> rx.Component:
             ),
             size="3",
             color_scheme="violet",
-            weight="bold"
+            weight="bold",
         ),
         rx.text(
             rx.cond(

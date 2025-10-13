@@ -45,13 +45,15 @@ def sign_product(
     Generate payload: {
         "metadata": {...},
         "signature": base64(...),
+        "message_digest": str
         "pubkey": public_pem_str,
         "pubkey_fingerprint": sha256(pubkey_pem),
         "algorithm": "RSA" or "ECDSA",
         "signed_at": "ISO timestamp"
     }
     """
-    message = canonicalize_metadata(metadata)
+    message: bytes = canonicalize_metadata(metadata)
+    digest: str = sha256_digest(data=message)
     if algorithm.upper() == "RSA":
         signature = rsa_sign(private_pem, message)
     elif algorithm.upper() == "ECDSA":
@@ -64,6 +66,7 @@ def sign_product(
     payload = {
         "metadata": metadata,
         "signature": signature_b64,
+        "digest": digest,
         "pubkey": pub_b64,
         "pubkey_fingerprint": sha256_digest(public_pem),
         "algorithm": algorithm.upper(),

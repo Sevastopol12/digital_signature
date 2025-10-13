@@ -1,6 +1,10 @@
 import reflex as rx
 import json
-from ..utils.decrypt import authenticate_author_key, verify_signed_product_payload
+from ..utils.decrypt import (
+    authenticate_author_key,
+    verify_signed_product_payload,
+    verify_message_digest,
+)
 from typing import Dict, Any, List
 from ..database.connection import db_settings
 from ..components.nav import go_back, to_sender
@@ -11,7 +15,12 @@ class AppState(rx.State):
     received_payload: Dict[str, Any] = {}
 
     # Public key authentication
+    public_key: str = ""
+    manufacturer: str = ""
     key_checked: bool = False  # Detect whether the user has checked the keys or not
+
+    # Signature
+    signature: str = ""
 
     @rx.event
     def load_payload(self):
@@ -19,27 +28,43 @@ class AppState(rx.State):
             data = json.load(file)
 
         self.received_payload = data
+        self.public_key = data.get("pubkey", "")
+        self.signature = data.get("signature", "")
+        self.manufacturer = data.get("metadata", {}).get("manufacturer", "")
 
     @rx.event
     def set_input_key(self, value: str):
         self.input_key = value
 
     @rx.var
-    def verify_signature(self) -> bool:
-        return verify_signed_product_payload(payload=self.received_payload)
+    def authenticate_public_key(self) -> bool:
+        if self.public_key and self.manufacturer:
+            return authenticate_author_key(
+                public_key=self.public_key, author=self.manufacturer
+            )
+        return False
 
     @rx.var
-    def authenticate_public_key(self) -> bool:
-        payload = self.payload_meta
-        author = payload.get("manufacturer", None)
+    def verify_digest(self) -> bool:
+        return verify_message_digest(payload=self.received_payload)
 
-        key_match_status = authenticate_author_key(author=author)
-        return key_match_status
+    @rx.var
+    def verify_signature(self) -> bool:
+        if verify_signed_product_payload(
+            payload=self.received_payload
+        ) and verify_message_digest(payload=self.received_payload):
+            return True
+
+        return False
 
     @rx.event
     def set_key_checked(self):
         if not self.key_checked:
             self.key_checked = True
+
+    @rx.event
+    def set_public_key(self, value: str):
+        self.public_key = value
 
     @rx.var
     def payload_meta(self) -> Dict[str, Any]:
@@ -93,6 +118,38 @@ def display_author(*args, **kwargs) -> rx.Component:
     )
 
 
+def display_payload_info():
+    return rx.fragment(
+        rx.vstack(
+            rx.text(
+                "Signature",
+                weight="bold",
+                size="3",
+                color_scheme="violet",
+            ),
+            data_viewer_box(
+                AppState.payload_authority.get("signature", "N/A"),
+                width="35vw",
+                height="5vw",
+            ),
+            rx.text(
+                "Public Key (Base64)",
+                weight="bold",
+                size="3",
+                color_scheme="violet",
+            ),
+            data_viewer_box(
+                AppState.payload_authority.get("pubkey", "N/A"),
+                width="35vw",
+                height="5vw",
+            ),
+            align_items="start",
+            spacing="2",
+            width="100%",
+        ),
+    )
+
+
 def product_info() -> rx.Component:
     return rx.flex(
         rx.button(
@@ -107,6 +164,9 @@ def product_info() -> rx.Component:
                 rx.divider(),
                 # Author & signed date
                 display_author(),
+                rx.divider(),
+                # Payload info
+                display_payload_info(),
             ),
             rx.hstack(
                 "Load a sample to further verify it", width="100%", justify="center"
@@ -124,11 +184,19 @@ def public_key_authenticate(*args, **kwargs) -> rx.Component:
     return rx.flex(
         rx.fragment(
             rx.text("Public key (fingerprint comparison)", **kwargs["title_props"]),
-            # data_viewer_box(
-            #     AppState.payload_authority.get("pubkey"),
-            #     width="37.5vw",
-            #     height="4vw",
-            # ),
+            rx.scroll_area(
+                rx.text_area(
+                    AppState.public_key,
+                    white_space="pre-wrap",
+                    word_break="break-all",
+                    padding="0.5em",
+                    on_change=AppState.set_public_key,
+                    width="100%",
+                    height="100%",
+                ),
+                width="37vw",
+                height="7vw",
+            ),
         ),
         rx.hstack(
             rx.cond(
@@ -140,7 +208,7 @@ def public_key_authenticate(*args, **kwargs) -> rx.Component:
                         color_scheme="grass",
                     ),
                     rx.text(
-                        f"{AppState.payload_meta.get('manufacturer', None)}",
+                        f"{AppState.manufacturer}",
                         **kwargs["title_props"],
                     ),
                 ),
@@ -151,7 +219,7 @@ def public_key_authenticate(*args, **kwargs) -> rx.Component:
                         color_scheme="tomato",
                     ),
                     rx.text(
-                        f"{AppState.payload_meta.get('manufacturer', None)}",
+                        f"{AppState.manufacturer}",
                         **kwargs["title_props"],
                     ),
                 ),
@@ -159,11 +227,11 @@ def public_key_authenticate(*args, **kwargs) -> rx.Component:
             width="100%",
             align="center",
             justify="center",
+            paddingTop="1em",
         ),
         direction="column",
         spacing="3",
         align="center",
-        paddingBottom="1em",
     )
 
 
@@ -172,14 +240,6 @@ def verify_signature(*args, **kwargs) -> rx.Component:
         rx.cond(
             AppState.authenticate_public_key,
             rx.fragment(
-                rx.fragment(
-                    rx.text("Signature", **kwargs["title_props"]),
-                    # data_viewer_box(
-                    #     AppState.payload_authority.get("signature", "N/A"),
-                    #     width="37.5vw",
-                    #     height="4vw",
-                    # ),
-                ),
                 rx.hstack(
                     rx.cond(
                         AppState.verify_signature,
@@ -217,7 +277,6 @@ def product_verification(*args, **kwargs) -> rx.Component:
         rx.vstack(
             # Public key authentication
             public_key_authenticate(**kwargs),
-            rx.divider(),
             verify_signature(**kwargs),
             align_items="center",
             spacing="4",
@@ -248,22 +307,29 @@ def index() -> rx.Component:
         rx.center(
             rx.flex(
                 rx.card(
-                    rx.heading("Product Info", size="7", align="center",paddingBottom="0.5em"),
+                    rx.heading(
+                        "Product Info", size="7", align="center", paddingBottom="0.5em"
+                    ),
                     rx.divider(),
                     product_info(),
                 ),
                 rx.cond(
                     AppState.key_checked,
                     rx.card(
-                        rx.heading("Verification", size="7", align="center", paddingBottom="0.5em"),
+                        rx.heading(
+                            "Verification",
+                            size="7",
+                            align="center",
+                            paddingBottom="0.5em",
+                        ),
                         rx.divider(),
                         product_verification(**params),
                     ),
                     rx.fragment(),
                 ),
-                direction="column",
+                direction="row",
                 spacing="5",
-                align="center",
+                align="baseline",
             ),
             width="100%",
             paddingTop="2em",
