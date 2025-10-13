@@ -1,11 +1,13 @@
 import base64
+import binascii
+import json
 from typing import Dict, Any
 from .helper import (
     canonicalize_metadata,
     load_transaction,
-    load_public_keys,
     sha256_digest,
 )
+from ..database.connection import db_settings
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
@@ -66,15 +68,35 @@ def verify_signed_product_payload(payload: Dict) -> bool:
         raise ValueError("Unsupported algorithm for verification")
 
 
-def authenticate_author_key(author: str) -> bool:
-    if not author:
+def authenticate_author_key(public_key: str, author: str) -> bool:
+    if not public_key:
         return False
-    transaction_data: Dict[str, Any] = load_transaction()
-    transaction_public_key: bytes = base64.b64decode(
-        transaction_data.get("pubkey", None)
-    )
+    try:
+        public_key_pem: bytes = base64.b64decode(public_key)
+        public_key_fingerprint: str = sha256_digest(data=public_key_pem)
 
-    transaction_key_fingerprint: str = sha256_digest(data=transaction_public_key)
+        with open(db_settings.public_key_storage, "r") as file:
+            data: Dict[str, Any] = json.load(file)
+            for manufacturer, keys in data.items():
+                if (
+                    public_key_fingerprint == keys["fingerprint"]
+                    and author == manufacturer
+                ):
+                    return True
+            return False
 
-    _, public_key_fingerprint = load_public_keys(author=author)
-    return public_key_fingerprint == transaction_key_fingerprint
+    except (FileNotFoundError, json.JSONDecodeError, binascii.Error):
+        return False
+
+
+def verify_message_digest(payload: Dict) -> bool:
+    metadata = payload.get("metadata", {})
+    sent_digest = payload.get("digest", None)
+    if not metadata or not sent_digest:
+        return False
+
+    # Perform hash on received data & compare with sent data
+    message: bytes = canonicalize_metadata(metadata)
+    digest: str = sha256_digest(data=message)
+
+    return digest == sent_digest
