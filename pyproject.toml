@@ -5,7 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "bar>=0.2.1",
     "cryptography>=46.0.2",
+    "pyz>=0.4.3",
+    "pyzbar>=0.1.9",
+    "qrcode[pil]>=8.2",
     "reflex>=0.8.13",
     "sqlalchemy>=2.0.43",
 ]
