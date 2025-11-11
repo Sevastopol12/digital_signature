@@ -1,6 +1,11 @@
 import json
 import hashlib
 import base64
+import random
+import string
+import qrcode
+import io
+from qrcode.constants import ERROR_CORRECT_L
 from ..database.connection import db_settings
 from typing import Tuple, Dict, Any
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
@@ -141,3 +146,28 @@ def load_transaction() -> Any:
             return data
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def create_unique_filename(file_name: str):
+    filename = "".join(random.choices(string.ascii_letters + string.digits, k=10))
+    return filename + "_" + file_name
+
+
+def generate_qr(data_dict: dict) -> bytes:
+    """Generates QR code image"""
+    data_string = json.dumps(data_dict, ensure_ascii=False, separators=(",", ":"))
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(data_string)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    byte_io = io.BytesIO()
+    img.save(byte_io, format="PNG")
+
+    base64_encoded_data = base64.b64encode(byte_io.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{base64_encoded_data}"

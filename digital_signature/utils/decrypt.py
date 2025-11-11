@@ -4,7 +4,6 @@ import json
 from typing import Dict, Any
 from .helper import (
     canonicalize_metadata,
-    load_transaction,
     sha256_digest,
 )
 from ..database.connection import db_settings
@@ -73,14 +72,14 @@ def authenticate_author_key(public_key: str, author: str) -> bool:
         return False
     try:
         public_key_pem: bytes = base64.b64decode(public_key)
-        public_key_fingerprint: str = sha256_digest(data=public_key_pem)
+        hashed_pubkey: str = sha256_digest(data=public_key_pem)
 
         with open(db_settings.public_key_storage, "r") as file:
             data: Dict[str, Any] = json.load(file)
-            for manufacturer, keys in data.items():
+            for registered_author, keys in data.items():
                 if (
-                    public_key_fingerprint == keys["fingerprint"]
-                    and author == manufacturer
+                    hashed_pubkey == keys["fingerprint"]
+                    and author.lower() == registered_author.lower()
                 ):
                     return True
             return False
@@ -91,12 +90,12 @@ def authenticate_author_key(public_key: str, author: str) -> bool:
 
 def verify_message_digest(payload: Dict) -> bool:
     metadata = payload.get("metadata", {})
-    sent_digest = payload.get("digest", None)
-    if not metadata or not sent_digest:
+    received_digest = payload.get("digest", None)
+    if not metadata or not received_digest:
         return False
 
     # Perform hash on received data & compare with sent data
     message: bytes = canonicalize_metadata(metadata)
-    digest: str = sha256_digest(data=message)
+    computed_digest: str = sha256_digest(data=message)
 
-    return digest == sent_digest
+    return computed_digest == received_digest

@@ -1,5 +1,7 @@
 import reflex as rx
 import json
+from pyzbar.pyzbar import decode
+from PIL import Image
 from ..utils.decrypt import (
     authenticate_author_key,
     verify_signed_product_payload,
@@ -13,6 +15,7 @@ from ..components.box import meta_box, data_viewer_box
 
 class AppState(rx.State):
     received_payload: Dict[str, Any] = {}
+    preview_url: str = ""
 
     # Public key authentication
     public_key: str = ""
@@ -28,9 +31,37 @@ class AppState(rx.State):
             data = json.load(file)
 
         self.received_payload = data
-        self.public_key = data.get("pubkey", "")
-        self.signature = data.get("signature", "")
-        self.manufacturer = data.get("metadata", {}).get("manufacturer", "")
+        self.public_key = self.received_payload.get("pubkey", "")
+        self.signature = self.received_payload.get("signature", "")
+        self.manufacturer = self.received_payload.get("metadata", {}).get(
+            "manufacturer", ""
+        )
+
+    @rx.event
+    async def upload_qr(self, files: List[rx.UploadFile]):
+        """Decode uploaded QR image"""
+        for file in files:
+            upload_dir = rx.get_upload_dir()
+
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            path = upload_dir / file.name
+
+            with open(path, "wb") as f:
+                f.write(await file.read())
+            self.preview_url = f"/{path}"
+
+            img = Image.open(path)
+            decoded = decode(img)
+            value = decoded[0].data.decode("ascii")
+
+            data = json.loads(value)
+            self.received_payload = data
+            self.public_key = self.received_payload.get("pubkey", "")
+            self.signature = self.received_payload.get("signature", "")
+            self.manufacturer = self.received_payload.get("metadata", {}).get(
+                "manufacturer", ""
+            )
+            self.key_checked = True
 
     @rx.event
     def set_input_key(self, value: str):
@@ -50,9 +81,10 @@ class AppState(rx.State):
 
     @rx.var
     def verify_signature(self) -> bool:
-        if verify_signed_product_payload(
-            payload=self.received_payload
-        ) and verify_message_digest(payload=self.received_payload):
+        if (
+            verify_signed_product_payload(payload=self.received_payload)
+            and self.verify_digest
+        ):
             return True
 
         return False
@@ -80,6 +112,9 @@ class AppState(rx.State):
             "signed_at",
         ]
         return {key: self.received_payload.get(key, None) for key in author_metadata}
+
+
+# Display info
 
 
 def display_metadata(*args, **kwargs) -> rx.Component:
@@ -129,7 +164,7 @@ def display_payload_info():
             ),
             data_viewer_box(
                 AppState.payload_authority.get("signature", "N/A"),
-                width="35vw",
+                width="100%",
                 height="5vw",
             ),
             rx.text(
@@ -140,7 +175,7 @@ def display_payload_info():
             ),
             data_viewer_box(
                 AppState.payload_authority.get("pubkey", "N/A"),
-                width="35vw",
+                width="100%",
                 height="5vw",
             ),
             align_items="start",
@@ -156,20 +191,43 @@ def product_info() -> rx.Component:
             rx.text("Load file"),
             on_click=[AppState.load_payload, AppState.set_key_checked],
         ),
+        rx.heading("OR", size="5"),
+        rx.vstack(
+            # Upload input
+            rx.upload(
+                rx.cond(
+                    AppState.preview_url != "",
+                    rx.image(
+                        src=AppState.preview_url,
+                        width="250px",
+                        border_radius="md",
+                        border="1px solid gray",
+                    ),
+                    rx.vstack(
+                        rx.text("Upload files"),
+                        rx.icon(tag="upload"),
+                        align="center",
+                    ),
+                ),
+                id="upload",
+                on_drop=AppState.upload_qr(rx.upload_files("upload")),
+            ),
+            align="center",
+            width="100%",
+        ),
         rx.cond(
             AppState.key_checked,
             rx.fragment(
-                # Product's data
                 display_metadata(),
                 rx.divider(),
-                # Author & signed date
                 display_author(),
                 rx.divider(),
-                # Payload info
                 display_payload_info(),
             ),
             rx.hstack(
-                "Load a sample to further verify it", width="100%", justify="center"
+                "Load a sample to further verify it",
+                width="100%",
+                justify="center",
             ),
         ),
         paddingTop="1em",
@@ -178,6 +236,9 @@ def product_info() -> rx.Component:
         align="center",
         width="40vw",
     )
+
+
+# Verification
 
 
 def public_key_authenticate(*args, **kwargs) -> rx.Component:
@@ -200,34 +261,78 @@ def public_key_authenticate(*args, **kwargs) -> rx.Component:
         ),
         rx.hstack(
             rx.cond(
-                AppState.authenticate_public_key,
-                rx.fragment(
-                    rx.text(rx.icon("circle-check", size=25), color_scheme="grass"),
-                    rx.text(
-                        "Valid, manufaturer matched with",
-                        color_scheme="grass",
+                AppState.public_key != "",
+                rx.cond(
+                    AppState.authenticate_public_key,
+                    rx.fragment(
+                        rx.text(rx.icon("circle-check", size=25), color_scheme="grass"),
+                        rx.text(
+                            "Valid, manufaturer matched with",
+                            color_scheme="grass",
+                        ),
+                        rx.text(
+                            f"{AppState.manufacturer}",
+                            **kwargs["title_props"],
+                        ),
                     ),
-                    rx.text(
-                        f"{AppState.manufacturer}",
-                        **kwargs["title_props"],
+                    rx.fragment(
+                        rx.text(rx.icon("circle-x", size=25), color_scheme="tomato"),
+                        rx.text(
+                            "Invalid, manufaturer does not matched with",
+                            color_scheme="tomato",
+                        ),
+                        rx.text(
+                            f"{AppState.manufacturer}",
+                            **kwargs["title_props"],
+                        ),
                     ),
                 ),
-                rx.fragment(
-                    rx.text(rx.icon("circle-x", size=25), color_scheme="tomato"),
-                    rx.text(
-                        "Invalid, manufaturer does not matched with",
-                        color_scheme="tomato",
-                    ),
-                    rx.text(
-                        f"{AppState.manufacturer}",
-                        **kwargs["title_props"],
-                    ),
+                rx.text(
+                    "Insert the public key",
+                    color_scheme="gray",
                 ),
             ),
             width="100%",
             align="center",
             justify="center",
             paddingTop="1em",
+        ),
+        direction="column",
+        spacing="3",
+        align="center",
+    )
+
+
+def verify_digest(*args, **kwargs) -> rx.Component:
+    return rx.flex(
+        rx.cond(
+            AppState.authenticate_public_key,
+            rx.fragment(
+                rx.hstack(
+                    rx.cond(
+                        AppState.verify_digest,
+                        rx.fragment(
+                            rx.text(
+                                rx.icon("circle-check", size=25), color_scheme="grass"
+                            ),
+                            rx.text(
+                                "Message & digest identical. Data integrity confirmed.",
+                                color_scheme="grass",
+                            ),
+                        ),
+                        rx.fragment(
+                            rx.text(
+                                rx.icon("circle-x", size=25), color_scheme="tomato"
+                            ),
+                            rx.text(
+                                "Message & digest unidentical. Data tampering detected.",
+                                color_scheme="tomato",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            rx.fragment(),
         ),
         direction="column",
         spacing="3",
@@ -257,7 +362,7 @@ def verify_signature(*args, **kwargs) -> rx.Component:
                                 rx.icon("circle-x", size=25), color_scheme="tomato"
                             ),
                             rx.text(
-                                "Signature is INVALID. WARNING: Potential data tampering or fraudulent origin detected!",
+                                "Signature is INVALID. Potential data tampering or fraudulent origin detected!",
                                 color_scheme="tomato",
                             ),
                         ),
@@ -277,6 +382,7 @@ def product_verification(*args, **kwargs) -> rx.Component:
         rx.vstack(
             # Public key authentication
             public_key_authenticate(**kwargs),
+            verify_digest(**kwargs),
             verify_signature(**kwargs),
             align_items="center",
             spacing="4",

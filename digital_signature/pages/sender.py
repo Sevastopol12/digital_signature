@@ -6,6 +6,7 @@ from ..utils.helper import (
     load_private_key,
     load_public_keys,
     register_key,
+    generate_qr,
 )
 from ..utils.encrypt import sign_product
 from ..database.connection import db_settings
@@ -37,13 +38,11 @@ class AppState(rx.State):
 
     @rx.event
     def set_product_id(self, value: str):
-        if value is not None:
-            self.product_id = value
+        self.product_id = value
 
     @rx.event
     def set_batch(self, value: str):
-        if value is not None:
-            self.batch = value
+        self.batch = value
 
     @rx.event
     def set_manufacturer(self, value: str):
@@ -52,18 +51,15 @@ class AppState(rx.State):
 
     @rx.event
     def set_origin(self, value: str):
-        if value is not None:
-            self.origin = value
+        self.origin = value
 
     @rx.event
     def set_expired_date(self, value: str):
-        if value is not None:
-            self.expired_date = value
+        self.expiry_date = value
 
     @rx.event
     def set_production_date(self, value: str):
-        if value is not None:
-            self.production_date = value
+        self.production_date = value
 
     @rx.event
     def randomize_keys(self) -> None:
@@ -86,7 +82,7 @@ class AppState(rx.State):
 
     @rx.event
     def sign_payload(self):
-        public_pem, public_hashed = load_public_keys(author=self.manufacturer)
+        public_pem, _ = load_public_keys(author=self.manufacturer)
         private_pem = load_private_key(author=self.manufacturer)
 
         product_payload: Dict[str, Any] = {
@@ -111,6 +107,10 @@ class AppState(rx.State):
         if self.signed_payload:
             with open(db_settings.transaction_storage, "w", encoding="utf-8") as file:
                 json.dump(self.signed_payload, file, indent=4)
+
+    @rx.var
+    def generate_qr(self) -> str:
+        return generate_qr(self.signed_payload)
 
     @rx.var
     def payload_meta(self) -> Dict[str, Any]:
@@ -251,6 +251,9 @@ def product_detail_info(*args):
     )
 
 
+# Key generation
+
+
 def encrypt_ui(*args, **kwargs) -> rx.Component:
     return rx.container(
         rx.flex(
@@ -326,6 +329,9 @@ def generate_keys(*args, **kwargs) -> rx.Component:
             spacing="4",
         ),
     )
+
+
+# Sign payload
 
 
 def publish_payload(*args, **kwargs) -> rx.Component:
@@ -415,9 +421,8 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                     color_scheme="violet",
                                 ),
                                 data_viewer_box(
-                                    AppState.payload_authority.get(
-                                        "digest", "N/A"
-                                    ),
+                                    AppState.payload_authority.get("digest", "N/A"),
+                                    width="100%",
                                 ),
                                 rx.text(
                                     "Signature",
@@ -427,6 +432,7 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 ),
                                 data_viewer_box(
                                     AppState.payload_authority.get("signature", "N/A"),
+                                    width="100%",
                                 ),
                                 rx.text(
                                     "Public Key (Base64)",
@@ -436,21 +442,31 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 ),
                                 data_viewer_box(
                                     AppState.payload_authority.get("pubkey", "N/A"),
+                                    width="100%",
                                 ),
                                 paddingTop="1em",
                                 align_items="start",
                                 spacing="2",
-                                width="100%",
                             ),
-                            rx.divider(),
+                            # Download QR code
+                            rx.button(
+                                "Download",
+                                on_click=rx.download(
+                                    data=AppState.generate_qr,
+                                    filename="qr_code.png",
+                                ),
+                                id="download button",
+                            ),
                             width="100%",
+                            align="center",
                         ),
                         rx.text("No payload signed."),
                     ),
-                    paddingTop="2em",
                 ),
+                height="auto",
             ),
             align="center",
+            width="100%",
         ),
     )
 
