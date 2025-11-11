@@ -1,7 +1,6 @@
 import reflex as rx
 import json
 import base64
-from PIL.Image import Image
 from ..utils.helper import (
     generate_rsa_keypair,
     load_private_key,
@@ -88,7 +87,7 @@ class AppState(rx.State):
 
     @rx.event
     def sign_payload(self):
-        public_pem, public_hashed = load_public_keys(author=self.manufacturer)
+        public_pem, _ = load_public_keys(author=self.manufacturer)
         private_pem = load_private_key(author=self.manufacturer)
 
         product_payload: Dict[str, Any] = {
@@ -257,6 +256,9 @@ def product_detail_info(*args):
     )
 
 
+# Key generation
+
+
 def encrypt_ui(*args, **kwargs) -> rx.Component:
     return rx.container(
         rx.flex(
@@ -332,6 +334,9 @@ def generate_keys(*args, **kwargs) -> rx.Component:
             spacing="4",
         ),
     )
+
+
+# Sign payload
 
 
 def publish_payload(*args, **kwargs) -> rx.Component:
@@ -448,6 +453,7 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 align_items="start",
                                 spacing="2",
                             ),
+                            # Download QR code
                             rx.button(
                                 "Download",
                                 on_click=rx.download(
@@ -461,8 +467,8 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                         ),
                         rx.text("No payload signed."),
                     ),
-                    paddingTop="2em",
                 ),
+                height="auto",
             ),
             align="center",
             width="100%",

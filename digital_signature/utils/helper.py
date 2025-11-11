@@ -153,25 +153,20 @@ def create_unique_filename(file_name: str):
     return filename + "_" + file_name
 
 
-def generate_qr(data_dict: dict) -> bytes:  # Change return type hint to bytes
-    """
-    Generates a QR code image as PNG bytes from a dictionary.
-    """
+def generate_qr(data_dict: dict) -> bytes:
+    """Generates QR code image"""
     data_string = json.dumps(data_dict, ensure_ascii=False, separators=(",", ":"))
 
     qr = qrcode.QRCode(
-        version=1, 
+        version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
         box_size=10,
         border=4,
     )
     qr.add_data(data_string)
     qr.make(fit=True)
-
     img = qr.make_image(fill_color="black", back_color="white")
-
     byte_io = io.BytesIO()
-
     img.save(byte_io, format="PNG")
 
     base64_encoded_data = base64.b64encode(byte_io.getvalue()).decode("utf-8")

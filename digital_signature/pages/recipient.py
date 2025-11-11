@@ -39,7 +39,7 @@ class AppState(rx.State):
 
     @rx.event
     async def upload_qr(self, files: List[rx.UploadFile]):
-        """Decode uploaded QR image."""
+        """Decode uploaded QR image"""
         for file in files:
             upload_dir = rx.get_upload_dir()
 
@@ -112,6 +112,9 @@ class AppState(rx.State):
             "signed_at",
         ]
         return {key: self.received_payload.get(key, None) for key in author_metadata}
+
+
+# Display info
 
 
 def display_metadata(*args, **kwargs) -> rx.Component:
@@ -233,6 +236,9 @@ def product_info() -> rx.Component:
         align="center",
         width="40vw",
     )
+
+
+# Verification
 
 
 def public_key_authenticate(*args, **kwargs) -> rx.Component:
