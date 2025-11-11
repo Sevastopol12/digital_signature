@@ -1,11 +1,13 @@
 import reflex as rx
 import json
 import base64
+from PIL.Image import Image
 from ..utils.helper import (
     generate_rsa_keypair,
     load_private_key,
     load_public_keys,
     register_key,
+    generate_qr,
 )
 from ..utils.encrypt import sign_product
 from ..database.connection import db_settings
@@ -111,6 +113,10 @@ class AppState(rx.State):
         if self.signed_payload:
             with open(db_settings.transaction_storage, "w", encoding="utf-8") as file:
                 json.dump(self.signed_payload, file, indent=4)
+
+    @rx.var
+    def generate_qr(self) -> str:
+        return generate_qr(self.signed_payload)
 
     @rx.var
     def payload_meta(self) -> Dict[str, Any]:
@@ -415,9 +421,8 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                     color_scheme="violet",
                                 ),
                                 data_viewer_box(
-                                    AppState.payload_authority.get(
-                                        "digest", "N/A"
-                                    ),
+                                    AppState.payload_authority.get("digest", "N/A"),
+                                    width="100%",
                                 ),
                                 rx.text(
                                     "Signature",
@@ -427,6 +432,7 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 ),
                                 data_viewer_box(
                                     AppState.payload_authority.get("signature", "N/A"),
+                                    width="100%",
                                 ),
                                 rx.text(
                                     "Public Key (Base64)",
@@ -436,14 +442,22 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                                 ),
                                 data_viewer_box(
                                     AppState.payload_authority.get("pubkey", "N/A"),
+                                    width="100%",
                                 ),
                                 paddingTop="1em",
                                 align_items="start",
                                 spacing="2",
-                                width="100%",
                             ),
-                            rx.divider(),
+                            rx.button(
+                                "Download",
+                                on_click=rx.download(
+                                    data=AppState.generate_qr,
+                                    filename="qr_code.png",
+                                ),
+                                id="download button",
+                            ),
                             width="100%",
+                            align="center",
                         ),
                         rx.text("No payload signed."),
                     ),
@@ -451,6 +465,7 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                 ),
             ),
             align="center",
+            width="100%",
         ),
     )
 
