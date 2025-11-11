@@ -38,13 +38,11 @@ class AppState(rx.State):
 
     @rx.event
     def set_product_id(self, value: str):
-        if value is not None:
-            self.product_id = value
+        self.product_id = value
 
     @rx.event
     def set_batch(self, value: str):
-        if value is not None:
-            self.batch = value
+        self.batch = value
 
     @rx.event
     def set_manufacturer(self, value: str):
@@ -53,18 +51,15 @@ class AppState(rx.State):
 
     @rx.event
     def set_origin(self, value: str):
-        if value is not None:
-            self.origin = value
+        self.origin = value
 
     @rx.event
     def set_expired_date(self, value: str):
-        if value is not None:
-            self.expired_date = value
+        self.expiry_date = value
 
     @rx.event
     def set_production_date(self, value: str):
-        if value is not None:
-            self.production_date = value
+        self.production_date = value
 
     @rx.event
     def randomize_keys(self) -> None:
