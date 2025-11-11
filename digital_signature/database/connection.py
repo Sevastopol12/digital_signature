@@ -1,7 +1,8 @@
 class Settings:
     # local
-    private_storage: str = r"data/private_key.pem"
-    public_storage: str = r"data/public_key.pem"
+    public_key_storage: str = r"data/public_key.json"
+    private_key_storage: str = r"data/private_key.json"
     transaction_storage: str = r"data/transaction.json"
+
 
 db_settings = Settings()

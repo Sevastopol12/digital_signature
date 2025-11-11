@@ -1,8 +1,7 @@
-import hashlib
 import base64
 import datetime
 from typing import Dict
-from .helper import canonicalize_metadata
+from .helper import canonicalize_metadata, sha256_digest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
@@ -36,14 +35,6 @@ def ecdsa_sign(private_pem: bytes, message: bytes) -> bytes:
     return signature
 
 
-def sha256_digest(data: bytes) -> str:
-    """
-    Hash the message
-    """
-    hashed_message = hashlib.sha256(data).hexdigest()
-    return hashed_message
-
-
 def sign_product(
     metadata: Dict,
     private_pem: bytes,
@@ -54,13 +45,15 @@ def sign_product(
     Generate payload: {
         "metadata": {...},
         "signature": base64(...),
+        "message_digest": str
         "pubkey": public_pem_str,
         "pubkey_fingerprint": sha256(pubkey_pem),
         "algorithm": "RSA" or "ECDSA",
         "signed_at": "ISO timestamp"
     }
     """
-    message = canonicalize_metadata(metadata)
+    message: bytes = canonicalize_metadata(metadata)
+    digest: str = sha256_digest(data=message)
     if algorithm.upper() == "RSA":
         signature = rsa_sign(private_pem, message)
     elif algorithm.upper() == "ECDSA":
@@ -73,9 +66,10 @@ def sign_product(
     payload = {
         "metadata": metadata,
         "signature": signature_b64,
+        "digest": digest,
         "pubkey": pub_b64,
         "pubkey_fingerprint": sha256_digest(public_pem),
         "algorithm": algorithm.upper(),
-        "signed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "signed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return payload

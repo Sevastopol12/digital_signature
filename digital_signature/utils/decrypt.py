@@ -1,6 +1,12 @@
 import base64
-from typing import Dict
-from helper import canonicalize_metadata
+import binascii
+import json
+from typing import Dict, Any
+from .helper import (
+    canonicalize_metadata,
+    sha256_digest,
+)
+from ..database.connection import db_settings
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
@@ -43,9 +49,11 @@ def verify_signed_product_payload(payload: Dict) -> bool:
     Xác thực payload do sign_product tạo ra.
     Trả về True/False
     """
-    metadata = payload["metadata"]
-    signature_b64 = payload["signature"]
-    pub_b64 = payload["pubkey"]
+    metadata = payload.get("metadata", {})
+    if not metadata:
+        return False
+    signature_b64 = payload.get("signature", None)
+    pub_b64 = payload.get("pubkey", None)
     algorithm = payload.get("algorithm", "RSA")
     signature = base64.b64decode(signature_b64)
     public_pem = base64.b64decode(pub_b64)
@@ -57,3 +65,37 @@ def verify_signed_product_payload(payload: Dict) -> bool:
         return ecdsa_verify(public_pem, message, signature)
     else:
         raise ValueError("Unsupported algorithm for verification")
+
+
+def authenticate_author_key(public_key: str, author: str) -> bool:
+    if not public_key:
+        return False
+    try:
+        public_key_pem: bytes = base64.b64decode(public_key)
+        hashed_pubkey: str = sha256_digest(data=public_key_pem)
+
+        with open(db_settings.public_key_storage, "r") as file:
+            data: Dict[str, Any] = json.load(file)
+            for registered_author, keys in data.items():
+                if (
+                    hashed_pubkey == keys["fingerprint"]
+                    and author.lower() == registered_author.lower()
+                ):
+                    return True
+            return False
+
+    except (FileNotFoundError, json.JSONDecodeError, binascii.Error):
+        return False
+
+
+def verify_message_digest(payload: Dict) -> bool:
+    metadata = payload.get("metadata", {})
+    received_digest = payload.get("digest", None)
+    if not metadata or not received_digest:
+        return False
+
+    # Perform hash on received data & compare with sent data
+    message: bytes = canonicalize_metadata(metadata)
+    computed_digest: str = sha256_digest(data=message)
+
+    return computed_digest == received_digest

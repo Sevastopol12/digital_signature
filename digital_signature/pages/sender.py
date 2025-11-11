@@ -1,10 +1,17 @@
 import reflex as rx
 import json
 import base64
-from ..utils.helper import generate_rsa_keypair, load_keys, store_keys
+from ..utils.helper import (
+    generate_rsa_keypair,
+    load_private_key,
+    load_public_keys,
+    register_key,
+    generate_qr,
+)
 from ..utils.encrypt import sign_product
 from ..database.connection import db_settings
 from ..components.nav import go_back, to_recipient
+from ..components.box import meta_box, data_viewer_box
 from typing import Dict, Any, List
 
 
@@ -31,13 +38,11 @@ class AppState(rx.State):
 
     @rx.event
     def set_product_id(self, value: str):
-        if value is not None:
-            self.product_id = value
+        self.product_id = value
 
     @rx.event
     def set_batch(self, value: str):
-        if value is not None:
-            self.batch = value
+        self.batch = value
 
     @rx.event
     def set_manufacturer(self, value: str):
@@ -46,25 +51,29 @@ class AppState(rx.State):
 
     @rx.event
     def set_origin(self, value: str):
-        if value is not None:
-            self.origin = value
+        self.origin = value
 
     @rx.event
     def set_expired_date(self, value: str):
-        if value is not None:
-            self.expired_date = value
+        self.expiry_date = value
 
     @rx.event
     def set_production_date(self, value: str):
-        if value is not None:
-            self.production_date = value
+        self.production_date = value
 
     @rx.event
-    def randomize_keys(self):
-        pem_private, pem_public = generate_rsa_keypair(key_size=3072)
-        store_keys(private_key_pem=pem_private, public_key_pem=pem_public)
-        self.private_key = base64.b64encode(pem_private).decode("ascii")
-        self.public_key = base64.b64encode(pem_public).decode("ascii")
+    def randomize_keys(self) -> None:
+        if self.manufacturer != "":
+            pem_private, pem_public = generate_rsa_keypair(key_size=3072)
+            register_key(
+                private_key_pem=pem_private,
+                public_key_pem=pem_public,
+                author=self.manufacturer,
+            )
+            self.private_key = base64.b64encode(pem_private).decode("ascii")
+            self.public_key = base64.b64encode(pem_public).decode("ascii")
+        else:
+            return None
 
     @rx.event
     def clear_keys(self):
@@ -73,7 +82,8 @@ class AppState(rx.State):
 
     @rx.event
     def sign_payload(self):
-        private_pem, public_pem = load_keys()
+        public_pem, _ = load_public_keys(author=self.manufacturer)
+        private_pem = load_private_key(author=self.manufacturer)
 
         product_payload: Dict[str, Any] = {
             "product_id": self.product_id,
@@ -99,13 +109,18 @@ class AppState(rx.State):
                 json.dump(self.signed_payload, file, indent=4)
 
     @rx.var
+    def generate_qr(self) -> str:
+        return generate_qr(self.signed_payload)
+
+    @rx.var
     def payload_meta(self) -> Dict[str, Any]:
-        return self.signed_payload.get("metadata", {"a": None})
+        return self.signed_payload.get("metadata", {})
 
     @rx.var
     def payload_authority(self) -> Dict[str, Any]:
         author_metadata: List[str] = [
             "signature",
+            "digest",
             "pubkey",
             "pubkey_fingerprint",
             "algorithm",
@@ -236,6 +251,9 @@ def product_detail_info(*args):
     )
 
 
+# Key generation
+
+
 def encrypt_ui(*args, **kwargs) -> rx.Component:
     return rx.container(
         rx.flex(
@@ -266,6 +284,11 @@ def generate_keys(*args, **kwargs) -> rx.Component:
             justify="center",
             spacing="3",
             width="100%",
+        ),
+        rx.cond(
+            AppState.manufacturer != "",
+            rx.fragment(),
+            rx.text("Please indentify yourself before registering key pair"),
         ),
         rx.grid(
             rx.card(
@@ -308,6 +331,9 @@ def generate_keys(*args, **kwargs) -> rx.Component:
     )
 
 
+# Sign payload
+
+
 def publish_payload(*args, **kwargs) -> rx.Component:
     return rx.flex(
         rx.button(
@@ -323,42 +349,6 @@ def publish_payload(*args, **kwargs) -> rx.Component:
         direction="column",
         align="center",
         spacing="4",
-    )
-
-
-def meta_box(title: str, value: str) -> rx.Component:
-    return rx.hstack(
-        rx.text(
-            f"{title.replace('_', ' ').capitalize()}: ",
-            weight="medium",
-            color_scheme="violet",
-        ),
-        rx.text(
-            value,
-            weight="regular",
-        ),
-        width="100%",
-        align="center",
-        justify="start",
-    )
-
-
-def data_viewer_box(title: str, content: str) -> rx.Component:
-    """Creates a container for long, fixed-width data (like keys/signatures)."""
-    return rx.vstack(
-        rx.text(title, weight="bold", size="3", color_scheme="violet"),
-        rx.card(
-            rx.scroll_area(
-                rx.text(
-                    content,
-                    white_space="pre-wrap",
-                    word_break="break-all",
-                    padding="0.5em",
-                ),
-                width="36vw",
-                height="4vw",
-            ),
-        ),
     )
 
 
@@ -391,7 +381,10 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                             rx.grid(
                                 rx.foreach(
                                     AppState.payload_meta.items(),
-                                    lambda item: meta_box(title=item[0], value=item[1]),
+                                    lambda item: meta_box(
+                                        title=item[0],
+                                        value=item[1],
+                                    ),
                                 ),
                                 rows="3",
                                 cols="2",
@@ -421,34 +414,59 @@ def display_signed_payload(*args, **kwargs) -> rx.Component:
                             ),
                             rx.divider(),
                             rx.vstack(
+                                rx.text(
+                                    "Message digest",
+                                    weight="bold",
+                                    size="3",
+                                    color_scheme="violet",
+                                ),
                                 data_viewer_box(
+                                    AppState.payload_authority.get("digest", "N/A"),
+                                    width="100%",
+                                ),
+                                rx.text(
                                     "Signature",
+                                    weight="bold",
+                                    size="3",
+                                    color_scheme="violet",
+                                ),
+                                data_viewer_box(
                                     AppState.payload_authority.get("signature", "N/A"),
+                                    width="100%",
                                 ),
-                                data_viewer_box(
+                                rx.text(
                                     "Public Key (Base64)",
-                                    AppState.payload_authority.get("pubkey", "N/A"),
+                                    weight="bold",
+                                    size="3",
+                                    color_scheme="violet",
                                 ),
                                 data_viewer_box(
-                                    "Public Key hashed",
-                                    AppState.payload_authority.get(
-                                        "pubkey_fingerprint", "N/A"
-                                    ),
+                                    AppState.payload_authority.get("pubkey", "N/A"),
+                                    width="100%",
                                 ),
                                 paddingTop="1em",
                                 align_items="start",
                                 spacing="2",
-                                width="100%",
                             ),
-                            rx.divider(),
+                            # Download QR code
+                            rx.button(
+                                "Download",
+                                on_click=rx.download(
+                                    data=AppState.generate_qr,
+                                    filename="qr_code.png",
+                                ),
+                                id="download button",
+                            ),
                             width="100%",
+                            align="center",
                         ),
                         rx.text("No payload signed."),
                     ),
-                    paddingTop="2em",
                 ),
+                height="auto",
             ),
             align="center",
+            width="100%",
         ),
     )
 

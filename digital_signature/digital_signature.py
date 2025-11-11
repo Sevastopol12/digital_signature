@@ -1,5 +1,5 @@
 import reflex as rx
-from .pages import landing, sender
+from .pages import landing, sender, recipient
 
 app = rx.App(
     style={"font_family": "Outfit"},
