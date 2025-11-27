@@ -5,7 +5,6 @@ import random
 import string
 import qrcode
 import io
-from qrcode.constants import ERROR_CORRECT_L
 from ..database.connection import db_settings
 from typing import Tuple, Dict, Any
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey

@@ -4,7 +4,7 @@ import reflex as rx
 def go_back() -> rx.Component:
     return rx.fragment(
         rx.link(
-            rx.text(rx.icon("arrow-left", size=20)),
+            rx.card(rx.icon("arrow-left", size=20)),
             on_click=rx.redirect("/"),
             color_scheme="violet",
         ),
@@ -16,7 +16,7 @@ def go_back() -> rx.Component:
 def to_recipient() -> rx.Component:
     return rx.fragment(
         rx.link(
-            rx.text(rx.icon("arrow-right", size=20)),
+            rx.card(rx.icon("arrow-right", size=20)),
             on_click=rx.redirect("/recipient"),
             color_scheme="violet",
         ),
@@ -28,7 +28,7 @@ def to_recipient() -> rx.Component:
 def to_sender() -> rx.Component:
     return rx.fragment(
         rx.link(
-            rx.text(rx.icon("arrow-right", size=20)),
+            rx.card(rx.icon("arrow-right", size=20)),
             on_click=rx.redirect("/sender"),
             color_scheme="violet",
         ),

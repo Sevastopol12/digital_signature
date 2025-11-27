@@ -11,5 +11,6 @@ dependencies = [
     "pyzbar>=0.1.9",
     "qrcode[pil]>=8.2",
     "reflex>=0.8.13",
+    "ruff>=0.14.6",
     "sqlalchemy>=2.0.43",
 ]
